@@ -1,0 +1,817 @@
+---
+title: "scz"
+author: "Line and Solvej"
+date: "9 nov 2018"
+output: pdf_document
+---
+
+# Libraries
+```{r}
+# libraries 
+library(pacman)
+p_load(qgraph, bootnet, NetworkComparisonTest,readxl,dplyr,pastecs,smacof,igraph,ggplot2,devtools,gdata)
+
+```
+
+# Read data
+```{r}
+# Working directory
+setwd("C:/Users/Bruger/Google Drev/Cognitive Science/Bachelor/Data")
+
+Scz <- read_excel("Schizophrenia.xlsx")
+
+```
+
+# Topological overlap, clean and subset
+```{r}
+
+allScz <- Scz[,c(1:6,14,19,23,28,35,48,53,62,63:68,75,76)]
+
+# col names
+colnames(allScz) <- c("Study","ID","Gender","Diagnosis","Age","Education","Affective Flattening","Alogia","Avolition-Apathy","Anhedonia-Asociality","Hallucinations","Delusions","Bizarre Behaviour","Formal Thought Disorder","Verbal Memory","Working Memory", "Motor Function", "Verbal Fluency","Processing Speed", "Executive Functioning", "Triangles Intentionality", "Triangles Appropriatness")
+
+# clean for NA
+allScz[allScz == 99] <- NA
+allScz <- na.omit(allScz)
+
+# find columns with lilttle or no variation and omit
+colSums(allScz != 0)
+## --> non
+
+# Subsets
+
+sczFullScz <- dplyr::filter(allScz, allScz$Diagnosis == "Schizophrenia")
+sczFullScz <- sczFullScz[,7:22]
+
+sczSymScz <- sczFullScz[,1:8]
+colSums(sczSymScz != 0)
+
+sczCogScz <- sczFullScz[,9:16]
+
+sczCogCon <- dplyr::filter(allScz,allScz$Diagnosis=="Control")
+sczCogCon <- sczCogCon[,15:22]
+
+
+```
+
+# Participant descriptives 
+```{r}
+
+# participant information Schizophrenia
+summary(allScz$Diagnosis)
+stat.desc(allScz$Age[allScz$Diagnosis=="Control"])
+stat.desc(allScz$Age[allScz$Diagnosis=="Schizophrenia"])
+summary(allScz$Gender[allScz$Diagnosis=="Control"])
+summary(allScz$Gender[allScz$Diagnosis=="Schizophrenia"])
+stat.desc(allScz$Education[allScz$Diagnosis=="Control"])
+stat.desc(allScz$Education[allScz$Diagnosis=="Schizophrenia"])
+
+```
+
+# check for normality and density distributions
+```{r}
+
+var = c(sczFullScz$`Affective Flattening`,sczFullScz$Alogia,sczFullScz$`Avolition-Apathy`,sczFullScz$`Anhedonia-Asociality`,sczFullScz$Hallucinations,sczFullScz$Delusions,sczFullScz$`Bizarre Behaviour`,sczFullScz$`Formal Thought Disorder`,sczFullScz$`Verbal Memory`,sczFullScz$`Working Memory`,sczFullScz$`Motor Function`,sczFullScz$`Verbal Fluency`,sczFullScz$`Processing Speed`,sczFullScz$`Executive Functioning`,sczFullScz$`Triangles Intentionality`,sczFullScz$`Triangles Appropriatness`)
+
+names = c("Affective Flattening","Alogia","Avolition-Apathy","Anhedonia-Asociality","Hallucinations","Delusions","Bizarre Behaviour","Formal Thought Disorder","Verbal Memory","Working Memory","Motor Function","Verbal Fluency","Processing Speed","Executive Functioning","Triangles Intentionality","Triangles Appropriatness")
+
+dens = c()
+qqplot = c()
+sharpiro = c()
+ 
+for (i in names){
+  d = plot(density(sczFullScz[[i]]))
+  dens[[i]]=d
+  q = qqnorm(sczFullScz[[i]]);qqline(sczFullScz[[i]])
+  qqplot[[i]]=q
+  s = shapiro.test(sczFullScz[[i]])
+  sharpiro[[i]]=s
+  scatter.smooth(sczFullScz[[i]])
+}
+
+cog = c("Verbal Memory","Working Memory","Motor Function","Verbal Fluency","Processing Speed","Executive Functioning","Triangles Intentionality","Triangles Appropriatness")
+
+for (i in cog){
+plot(density(sczCogCon[[i]]), col = 'deepskyblue', main="",xlab = "",ylab = "")
+lines(density(sczCogScz[[i]]), add=T, col = 'deeppink',main="",xlab = "",ylab = "")
+title(main=i, sub = "control: blue
+      scizophrenics: pink")
+}
+
+
+```
+
+
+# SczCogScz
+```{r}
+
+# estimate networks with different tuning 
+set.seed(100)
+sczCogScz_net1 <- estimateNetwork(sczCogScz, default = "EBICglasso", tuning = 0.10, corMethod = "cor_auto")
+sczCogScz_net2 <- estimateNetwork(sczCogScz, default = "EBICglasso",tuning = 0.25, corMethod = "cor_auto")
+sczCogScz_net3 <- estimateNetwork(sczCogScz, default = "EBICglasso",tuning = 0.50, corMethod = "cor_auto")
+
+# number of nodes, edges and mean weight 
+summary(sczCogScz_net1)
+summary(sczCogScz_net2)
+summary(sczCogScz_net3)
+
+# choose network 
+sczCogScz_net <- sczCogScz_net2
+
+# plot network spring
+png("sczCogScz_spring.png")
+sczCogScz_spring <- plot(sczCogScz_net3, layout = "spring", labels = TRUE, nodeNames=sczCogScz_net$labels)
+dev.off()
+
+## plot network MDS
+    
+   #conform to dissimilarity matrix and mds format
+sczCogScz_dis <- sim2diss(sczCogScz_net$graph)
+
+sczCogScz_mds <- mds(sczCogScz_dis)
+head(round(sczCogScz_mds$conf,2))
+
+   #best fit for transformation 
+sczCogScz_ordinal <- mds(sczCogScz_dis,type="ordinal")
+plot(sczCogScz_ordinal,plot.type="Shepard",main="Ordinal")
+text(0.9,0.2,paste("Stress=",round(sczCogScz_ordinal$stress,2)))
+
+sczCogScz_ratio <- mds(sczCogScz_dis,type="ratio")
+plot(sczCogScz_ratio,plot.type="Shepard",main="Ratio")
+text(0.9,0.2,paste("Stress=",round(sczCogScz_ratio$stress,2)))
+
+sczCogScz_interval <- mds(sczCogScz_dis,type="interval")
+plot(sczCogScz_interval,plot.type="Shepard",main="Interval")
+text(0.9,0.2,paste("Stress=",round(sczCogScz_interval$stress,2)))
+
+sczCogScz_mspline <- mds(sczCogScz_dis,type="mspline")
+plot(sczCogScz_mspline,plot.type="Shepard",main="Spline")
+text(0.9,0.2,paste("Stress=",round(sczCogScz_mspline$stress,2)))
+   # --> ORDINAL IT IS
+
+png("sczCogScz_mds.png")
+
+plot(sczCogScz_net, layout = sczCogScz_ordinal$conf, labels = TRUE, nodeNames=sczCogScz_net$labels,color="lightblue",border.color=c("red","red","black","red","red","black","black","black"),border.width=c(4,4,2,4,4,2,2,2),vsize=c(6,8),title="Cognitive Patient Network",title.cex=1.3)
+text(-1,-1,paste("Stress=",round(sczCogScz_ordinal$stress,2)))
+
+dev.off()
+
+# nodes are scaled accroding to degree. nodes of interest are highlighted
+
+```
+
+# SczCogScz descriptives 
+```{r}
+
+## Global descriptives of the network
+   
+   # number of nodes, edges and mean weight
+summary(sczCogScz_net)
+
+   # conversion to Igraph
+sczCogScz_graph <- sczCogScz_net$graph
+sczCogScz_Igraph <- graph_from_adjacency_matrix(sczCogScz_graph, weighted=T, mode="undirected", diag=F)
+sczCogScz_Igraph_abs <- graph_from_adjacency_matrix(abs(sczCogScz_graph), weighted=T, mode="undirected", diag=F)
+
+   # transitivity: clustering from 0 to 1. measure of redundancy. transitivity takes account of weights
+transitivity(sczCogScz_Igraph,"global")
+transitivity(sczCogScz_Igraph,"local")
+transitivity(sczCogScz_Igraph,"average")
+
+   # path lengths 
+shortest.paths(sczCogScz_Igraph_abs)   
+average.path.length(sczCogScz_Igraph)
+graph.density(sczCogScz_Igraph)
+diameter(sczCogScz_Igraph_abs)
+
+   # smallworldness
+set.seed(100)
+smallworldness(sczCogScz_net)
+
+## Centrality measures 
+sczCogScz_cent <- centrality_auto(sczCogScz_net)
+
+png("CogScz_centplot.png")
+CogScz_centplot <- centralityPlot(sczCogScz_net)
+dev.off()
+
+View(sczCogScz_cent$node.centrality)
+write.csv(sczCogScz_cent$node.centrality, file = "CogScz_centtable.txt")
+
+# clustering coefficients
+sczCogScz_clust <- clustcoef_auto(sczCogScz_net)
+sczCogScz_clust <- round(sczCogScz_clust,digits=2)
+write.csv(sczCogScz_clust, file = "sczCogScz_clust.txt")
+
+png("CogScz_clustplot.png")
+CogScz_clustplot <- clusteringPlot(sczCogScz_net,signed=TRUE, include = "WS")
+dev.off()
+
+#Stability: bootstrap method on complete data, sample 2500 times
+boot1_sczCogScz <- bootnet(sczCogScz_net,nBoots = 2500, ncores = 4)
+
+   # Sample and Target lines with CI
+plot(boot1_sczCogScz, labels=TRUE, order="sample")
+
+   #Differencetest within network 
+   ##edges
+plot(boot1_sczCogScz,"edge",plot="difference", onlyNonZero = TRUE, order = "sample")
+
+   ##centrality
+plot(boot1_sczCogScz,"strength")
+plot(boot1_sczCogScz,"betweenness")
+plot(boot1_sczCogScz,"closeness")
+
+# Degree distribution 
+result2 <- c()
+result <- c()
+for (k in 1:100){
+  bo <- boot1_sczCogScz$boots
+  bo1 <- bo[[k]]
+  g_bo1 <- bo1$graph
+  for (i in 1:8){
+    ab <- abs(g_bo1[i,])
+    de <-  sum(ab)
+    result[i] <- de
+  }
+x = result
+result2 = c(result2,x)
+}
+
+qplot(result2,geom="histogram",binwidth = 0.1, main="Degree distribution", xlab = "weight of edges",ylab="Frequency",fill=..count..,col=I("black"),alpha=I(0.2))
+##
+
+#Stability: bootstrap method with case dropping 
+boot2_sczCogScz <- bootnet(sczCogScz_net,nBoots = 2500, type = "case", nCores = 4)
+
+plot(boot2_sczCogScz)
+
+corStability(boot2_sczCogScz)
+
+
+```
+
+
+# SczCogCon
+```{r}
+# network estimation using different tunings
+set.seed(100)
+sczCogCon_net1 <- estimateNetwork(sczCogCon, default = "EBICglasso",tuning = 0.10, corMethod = "cor_auto")
+sczCogCon_net2 <- estimateNetwork(sczCogCon, default = "EBICglasso",tuning = 0.25, corMethod = "cor_auto")
+sczCogCon_net3 <- estimateNetwork(sczCogCon, default = "EBICglasso",tuning = 0.50, corMethod = "cor_auto")
+
+summary(sczCogCon_net1)
+summary(sczCogCon_net2)
+summary(sczCogCon_net3)
+
+# choose network
+sczCogCon_net <- sczCogCon_net2
+
+# plot network
+png("CogCon_spring.png")
+CogCon_spring <- plot(sczCogCon_net, layout = "spring", labels = TRUE,nodeNames = sczCogCon_net$labels)
+dev.off()
+
+# plot network MDS
+##conform to dissimilarity matrix and mds format
+sczCogCon_dis <- sim2diss(sczCogCon_net$graph)
+
+sczCogCon_mds <- mds(sczCogCon_dis)
+head(round(sczCogCon_mds$conf,2))
+
+##best fit for transformation 
+sczCogCon_ordinal <- mds(sczCogCon_dis,type="ordinal")
+plot(sczCogCon_ordinal,plot.type="Shepard",main="Ordinal")
+text(0.9,0.2,paste("Stress=",round(sczCogCon_ordinal$stress,2)))
+
+sczCogCon_ratio <- mds(sczCogCon_dis,type="ratio")
+plot(sczCogCon_ratio,plot.type="Shepard",main="Ratio")
+text(0.9,0.2,paste("Stress=",round(sczCogCon_ratio$stress,2)))
+
+sczCogCon_interval <- mds(sczCogCon_dis,type="interval")
+plot(sczCogCon_interval,plot.type="Shepard",main="Interval")
+text(0.9,0.2,paste("Stress=",round(sczCogCon_interval$stress,2)))
+
+sczCogCon_mspline <- mds(sczCogCon_dis,type="mspline")
+plot(sczCogCon_mspline,plot.type="Shepard",main="Spline")
+text(0.9,0.2,paste("Stress=",round(sczCogCon_mspline$stress,2)))
+# --> ORDINAL IT IS
+
+png("CogCon_mds.png")
+CogCon_mds <- plot(sczCogCon_net, layout = sczCogCon_ordinal$conf, labels = TRUE, nodeNames=sczCogCon_net$labels,color="honeydew3",border.color=c("red","red","black","red","red","black","black","black"),border.width=c(4,4,2,4,4,2,2,2),vsize=c(6,8),title="Cognitive Control Network",title.cex=1.3)
+text(-1,-1,paste("Stress=",round(sczCogCon_ordinal$stress,2)))
+dev.off()
+
+
+```
+
+# SczCogCon descriptives
+```{r}
+
+# Global descriptives
+
+   # conversion to Igraph
+sczCogCon_graph <- sczCogCon_net$graph
+sczCogCon_Igraph <- graph_from_adjacency_matrix(sczCogCon_graph, weighted=T, mode="undirected", diag=F)
+sczCogCon_Igraph_abs <- graph_from_adjacency_matrix(abs(sczCogCon_graph), weighted=T, mode="undirected", diag=F)
+
+   # transitivity: clustering from 0 to 1. measure of redundancy. transitivity takes account of weights
+transitivity(sczCogCon_Igraph,"global")
+transitivity(sczCogCon_Igraph,"local")
+transitivity(sczCogCon_Igraph,"average")
+
+   # path lengths 
+shortest.paths(sczCogCon_Igraph_abs)
+average.path.length(sczCogCon_Igraph)
+graph.density(sczCogCon_Igraph)
+diameter(sczCogCon_Igraph_abs)
+
+   # smallworldness
+set.seed(100)
+smallworldness(sczCogCon_net)
+
+## Centrality measures 
+sczCogCon_cent <- centrality_auto(sczCogCon_net)
+View(sczCogScz_cent$node.centrality)
+
+png("CogCon_centplot.png")
+CogCon_centplot <- centralityPlot(sczCogCon_net)
+dev.off()
+
+# clustering coefficients
+sczCogCon_clust <- clustcoef_auto(sczCogCon_net)
+write.csv(sczCogCon_clust,file="CogCon_clust.csv")
+View(sczCogCon_clust)
+
+png("CogCon_clustplot.png")
+CogCon_clustplot <- clusteringPlot(sczCogCon_net,signed=TRUE, include = "WS")
+dev.off()
+
+
+#Stability: bootstrap method on complete data, sample 2500 times
+boot1_sczCogCon <- bootnet(sczCogCon_net,nBoots = 2500, ncores = 4)
+
+     # Sample and Target lines with CI
+plot(boot1_sczCogCon, labels=TRUE, order="sample")
+
+  ##Differencetest within network 
+
+     #edges
+plot(boot1_sczCogCon,"edge",plot="difference", onlyNonZero = TRUE, order = "sample")
+
+     #centrality
+plot(boot1_sczCogCon,"strength")
+plot(boot1_sczCogCon,"betweenness")
+plot(boot1_sczCogCon,"closeness")
+
+# Degree distribution 
+result2 <- c()
+result <- c()
+for (k in 1:100){
+  bo <- boot1_sczCogCon$boots
+  bo1 <- bo[[k]]
+  g_bo1 <- bo1$graph
+  for (i in 1:8){
+    ab <- abs(g_bo1[i,])
+    de <-  sum(ab)
+    result[i] <- de
+  }
+x = result
+result2 = c(result2,x)
+}
+
+qplot(result2,geom="histogram",binwidth = 0.1, main="Degree distribution", xlab = "weight of edges",ylab="Frequency",fill=..count..,col=I("black"),alpha=I(0.2))
+##
+
+#Stability: bootstrap method with case dropping 
+boot2_sczCogCon <- bootnet(sczCogCon_net,nBoots = 2500, type = "case", nCores = 4)
+
+plot(boot2_sczCogCon)
+
+corStability(boot2_sczCogCon, cor= 0.7)
+
+
+```
+
+
+# Comparison controls and patients 
+```{r}
+
+# Network Comparison Test (100 itterations)
+res <- NCT(sczCogScz,sczCogCon, it = 100, test.edges = TRUE, edges = "all", progressbar = FALSE, gamma = 0.25, paired = FALSE)
+
+# global strength for each network 
+res$glstrinv.sep
+
+# difference in global strength 
+res$glstrinv.real
+
+# p-value for difference test 
+res$glstrinv.pval
+
+# biggest edge difference across networks 
+res$nwinv.real
+
+# difference in specific edge weights 
+res1 <- res$einv.real
+View(res1)
+
+#plot difference network 
+qgraph(res1, layout = "spring")
+
+# p-values for difference in specific edge weights 
+res1_p <- res$einv.pvals
+View(res1_p)
+
+# plot (from itterations) maximum edge difference
+plot(res, what="network")
+
+# plot of global strength difference
+plot(res, what="strength")
+
+# plot of difference in edge(5,6)
+res2 <- NCT(sczCogScz,sczCogCon, it = 100, test.edges = TRUE, edges = list(c(5,6)), progressbar = FALSE, gamma = 0.25, paired = FALSE)
+plot(res2, what = "edge")
+
+# spearman correlations
+x <- sczCogScz_cent$node.centrality
+y <- sczCogCon_cent$node.centrality
+
+cor.test(x$Strength,y$Strength, method = "spearman")
+cor.test(x$Betweenness,y$Betweenness, method = "spearman")
+cor.test(x$Closeness,y$Closeness, method = "spearman")
+
+# CI edges - overlap check 
+b1 <- summary(boot1_sczCogScz)
+b2 <- filter(b1,type=="edge")
+b3 <- b2[,c(2,6,8,9)]
+
+c1 <- summary(boot1_sczCogCon)
+c2 <- filter(c1,type=="edge")
+c3 <- c2[,c(2,6,8,9)]
+
+d1 <- rbind(b3,c3)
+d1$group <- factor(c(
+  rep("Scz",28),
+  rep("Con",28)
+))
+
+ggplot(d1,aes(x=id,y=mean, colour=group))+
+  geom_point()+
+  geom_errorbar(aes(ymax=CIupper,ymin=CIlower))+
+  coord_flip()
+
+# CI centrality - overlap
+
+b4 <- filter(b1,type=="strength")
+b5 <- b4[,c(2,6,8,9)]
+
+c4 <- filter(c1,type=="strength")
+c5 <- c4[,c(2,6,8,9)]
+
+d2 <- rbind(b5,c5)
+d2$group <- factor(c(
+  rep("Scz",8),
+  rep("Con",8)
+))
+
+ggplot(d2,aes(x=id,y=mean, colour=group))+
+  geom_point()+
+  geom_errorbar(aes(ymax=CIupper,ymin=CIlower))+
+  coord_flip()
+
+
+```
+
+
+# SczSymScz
+```{r}
+
+# estimate network with different tunings
+set.seed(100)
+sczSymScz_net1 <- estimateNetwork(sczSymScz, default = "EBICglasso",tuning = 0.1, corMethod = "cor_auto")
+sczSymScz_net2 <- estimateNetwork(sczSymScz, default = "EBICglasso",tuning = 0.25, corMethod = "cor_auto")
+sczSymScz_net3 <- estimateNetwork(sczSymScz, default = "EBICglasso",tuning = 0.5, corMethod = "cor_auto")
+
+summary(sczSymScz_net1)
+summary(sczSymScz_net2)
+summary(sczSymScz_net3)
+
+# choose network
+sczSymScz_net <- sczSymScz_net3
+
+# plot network
+groups_SymScz <- factor(c(
+rep("Negative",4),
+rep("Positive",4)
+))
+
+names_symscz <- c("Affective Flattening","Alogia","Avolition-Apathy","Anhedonia-Asociality","Hallucinations","Delusions","Bizarre Behaviour","Formal Thought Disorder")
+
+png("SymScz_spirng.png")
+SymScz_spirng <- plot(sczSymScz_net, layout = "spring", labels = TRUE, nodeNames = names_symscz, groups = groups_SymScz)
+dev.off()
+
+# plot network MDS
+##conform to dissimilarity matrix and mds format
+sczSymScz_dis <- sim2diss(sczSymScz_net$graph)
+
+sczSymScz_mds <- mds(sczSymScz_dis)
+head(round(sczSymScz_mds$conf,2))
+
+##best fit for transformation 
+sczSymScz_ordinal <- mds(sczSymScz_dis,type="ordinal")
+plot(sczSymScz_ordinal,plot.type="Shepard",main="Ordinal")
+text(0.9,0.2,paste("Stress=",round(sczSymScz_ordinal$stress,2)))
+
+sczSymScz_ratio <- mds(sczSymScz_dis,type="ratio")
+plot(sczSymScz_ratio,plot.type="Shepard",main="Ratio")
+text(0.9,0.2,paste("Stress=",round(sczSymScz_ratio$stress,2)))
+
+sczSymScz_interval <- mds(sczSymScz_dis,type="interval")
+plot(sczSymScz_interval,plot.type="Shepard",main="Interval")
+text(0.9,0.2,paste("Stress=",round(sczSymScz_interval$stress,2)))
+
+sczSymScz_mspline <- mds(sczSymScz_dis,type="mspline")
+plot(sczSymScz_mspline,plot.type="Shepard",main="Spline")
+text(0.9,0.2,paste("Stress=",round(sczSymScz_mspline$stress,2)))
+# --> ORDINAL IT IS
+
+col.sym <- c("orange2","mediumseagreen")
+
+png("SymScz_mds.png")
+SymScz_mds <- plot(sczSymScz_net, layout = sczSymScz_ordinal$conf, labels = TRUE, nodeNames=names_symscz,groups = groups_SymScz,color=col.sym, vsize=c(6,8), layoutScale = c(0.8,0.8),legend.cex=0.5,title="Symptom Network",title.cex=1.3)
+text(-1,-1,paste("Stress=",round(sczSymScz_ordinal$stress,2)))
+dev.off()
+
+
+
+```
+
+# SczSymScz descriptives
+```{r}
+
+## Global Descriptives 
+   
+  # conversion to Igraph
+sczSymScz_graph <- sczSymScz_net$graph
+sczSymScz_Igraph <- graph_from_adjacency_matrix(sczSymScz_graph, weighted=T, mode="undirected", diag=F)
+sczSymScz_Igraph_abs <- graph_from_adjacency_matrix(abs(sczSymScz_graph), weighted=T, mode="undirected", diag=F)
+
+   # transitivity: clustering from 0 to 1. measure of redundancy. transitivity takes account of weights
+transitivity(sczSymScz_Igraph,"global")
+transitivity(sczSymScz_Igraph,"local")
+transitivity(sczSymScz_Igraph,"average")
+
+   # path lengths 
+shortest.paths(sczSymScz_Igraph_abs)   
+average.path.length(sczSymScz_Igraph)
+graph.density(sczSymScz_Igraph)
+diameter(sczSymScz_Igraph_abs) 
+
+   # smallworldness
+set.seed(100)
+smallworldness(sczSymScz_net)
+
+## Centrality measures 
+sczSymScz_cent <- centrality_auto(sczSymScz_net)
+View(sczSymScz_cent$node.centrality)
+
+png("SymScz_centplot.png")
+SymScz_centplot <- centralityPlot(sczSymScz_net)
+dev.off()
+
+# clustering coefficients
+sczSymScz_clust <- clustcoef_auto(sczSymScz_net)
+sczSymScz_clust <- round(sczSymScz_clust,digits=2)
+View(sczSymScz_clust)
+write.csv(sczSymScz_clust,file = "SymScz_clust.csv")
+
+png("SymScz_clustplot.png")
+SymScz_clustplot <- clusteringPlot(sczSymScz_net,signed=TRUE, include = "WS")
+dev.off()
+
+
+#Stability: bootstrap method on complete data, sample 2500 times
+boot1_sczSymScz <- bootnet(sczSymScz_net,nBoots = 2500, ncores = 4)
+
+plot(boot1_sczSymScz, labels=TRUE, order="sample")
+
+  #Differencetest within network 
+      #edges
+plot(boot1_sczSymScz,"edge",plot="difference", onlyNonZero = TRUE, order = "sample")
+
+      #centrality
+plot(boot1_sczSymScz,"strength")
+plot(boot1_sczSymScz,"betweenness")
+plot(boot1_sczSymScz,"closeness")
+
+# Degree dist 
+result2Sym <- c()
+resultSym <- c()
+for (k in 1:100){
+  bo <- boot1_sczSymScz$boots
+  bo1 <- bo[[k]]
+  g_bo1 <- bo1$graph
+  for (i in 1:8){
+    ab <- abs(g_bo1[i,])
+    de <-  sum(ab)
+    resultSym[i] <- de
+  }
+x = resultSym
+result2Sym = c(result2Sym,x)
+}
+
+qplot(result2Sym,geom="histogram",binwidth = 0.1, main="Degree distribution", xlab = "weight of edges",ylab="Frequency",fill=..count..,col=I("black"),alpha=I(0.2))
+###
+
+
+#Stability: bootstrap method with case dropping 
+boot2_sczSymScz <- bootnet(sczSymScz_net,nBoots = 2500, type = "case", nCores = 4)
+
+plot(boot2_sczSymScz)
+
+corStability(boot2_sczSymScz)
+
+```
+
+
+# SczFullScz
+```{r}
+
+# estimate network with different tunings
+set.seed(100)
+sczFullScz_net1 <- estimateNetwork(sczFullScz, default = "EBICglasso",tuning = 0.1, corMethod = "cor_auto")
+sczFullScz_net2 <- estimateNetwork(sczFullScz, default = "EBICglasso",tuning = 0.25, corMethod = "cor_auto")
+sczFullScz_net3 <- estimateNetwork(sczFullScz, default = "EBICglasso",tuning =  0.5, corMethod = "cor_auto")
+
+summary(sczFullScz_net1)
+summary(sczFullScz_net2)
+summary(sczFullScz_net3)
+
+# choose network
+sczFullScz_net <- sczFullScz_net2
+
+# plot network
+groups_fullscz <- factor(c(
+rep("Negative Symptoms",4),
+rep("Positive Symptoms",4),
+rep("Cognitive Measures",8)
+))
+
+names_fullscz <- c("Affective Flattening","Alogia","Avolition-Apathy","Anhedonia-Asociality","Hallucinations","Delusions","Bizarre Behaviour","Formal Thought Disorder","Verbal Memory","Working Memory", "Motor Function", "Verbal Fluency","Processing Speed", "Executive Functioning", "Triangles Intentionality", "Triangles Appropriatness")
+
+png("FullScz_spring.png")
+FullScz_spring <- plot(sczFullScz_net, layout = "spring", labels = TRUE, nodeNames=names_fullscz, groups=groups_fullscz)
+dev.off()
+
+# plot network MDS
+##conform to dissimilarity matrix and mds format
+sczFullScz_dis <- sim2diss(sczFullScz_net$graph)
+
+sczFullScz_mds <- mds(sczFullScz_dis)
+head(round(sczFullScz_mds$conf,2))
+
+##best fit for transformation 
+sczFullScz_ordinal <- mds(sczFullScz_dis,type="ordinal")
+plot(sczFullScz_ordinal,plot.type="Shepard",main="Ordinal")
+text(0.9,0.2,paste("Stress=",round(sczFullScz_ordinal$stress,2)))
+
+sczFullScz_ratio <- mds(sczFullScz_dis,type="ratio")
+plot(sczFullScz_ratio,plot.type="Shepard",main="Ratio")
+text(0.9,0.2,paste("Stress=",round(sczFullScz_ratio$stress,2)))
+
+sczFullScz_interval <- mds(sczFullScz_dis,type="interval")
+plot(sczFullScz_interval,plot.type="Shepard",main="Interval")
+text(0.9,0.2,paste("Stress=",round(sczFullScz_interval$stress,2)))
+
+sczFullScz_mspline <- mds(sczFullScz_dis,type="mspline")
+plot(sczFullScz_mspline,plot.type="Shepard",main="Spline")
+text(0.9,0.2,paste("Stress=",round(sczFullScz_mspline$stress,2)))
+# --> ORDINAL IT IS
+
+col.full <- c("lightblue","orange2","mediumseagreen")
+
+png("FullScz_mds.png")
+FullScz_mds <- plot(sczFullScz_net, layout = sczFullScz_ordinal$conf, labels = TRUE, nodeNames=names_fullscz,groups = groups_fullscz, color= col.full, vsize=c(6,8), layoutScale = c(1,1),legend.cex=0.4,title="Full Network",title.cex=1.3)
+text(-1,-1,paste("Stress=",round(sczFullScz_ordinal$stress,2)))
+dev.off()
+
+```
+
+# SczFullScz descriptives
+```{r}
+## Global descriptives of the network
+
+   # conversion to Igraph
+sczFullScz_graph <- sczFullScz_net$graph
+sczFullScz_Igraph <- graph_from_adjacency_matrix(sczFullScz_graph, weighted=T, mode="undirected", diag=F)
+sczFullScz_Igraph_abs <- graph_from_adjacency_matrix(abs(sczFullScz_graph), weighted=T, mode="undirected", diag=F)
+
+   # transitivity: clustering from 0 to 1. measure of redundancy. transitivity takes account of weights
+transitivity(sczFullScz_Igraph,"global")
+transitivity(sczFullScz_Igraph,"local")
+transitivity(sczFullScz_Igraph,"average")
+
+   # path lengths 
+shortest.paths(sczFullScz_Igraph_abs)   
+average.path.length(sczFullScz_Igraph)
+graph.density(sczFullScz_Igraph)
+diameter(sczFullScz_Igraph_abs)
+
+  # smallworldness
+set.seed(100)
+smallworldness(sczFullScz_net)
+
+# Centrality measures 
+sczFullScz_cent <- centrality_auto(sczFullScz_net)
+sczFullScz_cent2 <- round(sczFullScz_cent$node.centrality,5)
+View(sczFullScz_cent2)
+write.csv(sczFullScz_cent2,file = "FullScz_cent.csv")
+
+png("FullScz_centplot.png")
+FullScz_centplot <- centralityPlot(sczFullScz_net)
+dev.off()
+
+# Clustering coefficients
+sczFullScz_clust <- clustcoef_auto(sczFullScz_net)
+sczFullScz_clust <- round(sczFullScz_clust,2)
+View(sczFullScz_clust)
+write.csv(sczFullScz_clust, file = "FullScz_clust.csv")
+
+png("FullScz_clustplot.png")
+FullScz_clustplot <- clusteringPlot(sczFullScz_net,signed=TRUE, include = "WS")
+dev.off()
+
+
+#Stability: bootstrap method on complete data, sample 2500 times
+boot1_sczFullScz <- bootnet(sczFullScz_net,nBoots = 2500, ncores = 4)
+
+plot(boot1_sczFullScz, labels=FALSE, order="sample")
+
+  ##Differencetest within network 
+    #edges
+plot(boot1_sczFullScz,"edge",plot="difference", onlyNonZero = TRUE, order = "sample")
+
+    #centrality
+plot(boot1_sczFullScz,"strength")
+plot(boot1_sczFullScz,"betweenness")
+plot(boot1_sczFullScz,"closeness")
+
+# Degree dist 
+result2Sym <- c()
+resultSym <- c()
+for (k in 1:100){
+  bo <- boot1_sczFullScz$boots
+  bo1 <- bo[[k]]
+  g_bo1 <- bo1$graph
+  for (i in 1:8){
+    ab <- abs(g_bo1[i,])
+    de <-  sum(ab)
+    resultSym[i] <- de
+  }
+x = resultSym
+result2Sym = c(result2Sym,x)
+}
+
+qplot(result2Sym,geom="histogram",binwidth = 0.1, main="Degree distribution", xlab = "weight of edges",ylab="Frequency",fill=..count..,col=I("black"),alpha=I(0.2))
+###
+
+
+#Stability: bootstrap method with case dropping 
+boot2_sczFullScz <- bootnet(sczFullScz_net,nBoots = 2500, type = "case", nCores = 4)
+
+plot(boot2_sczFullScz)
+
+corStability(boot2_sczFullScz)
+
+```
+
+
+# Confidence intervals on Symptoms and Full network
+```{r}
+
+# CI centrality - overlap SYM
+b7 <- summary(boot1_sczSymScz)
+b10 <- filter(b7,type=="strength")
+b11 <- b10[,c(2,6,8,9)]
+
+ggplot(b11,aes(x=id,y=mean))+
+  geom_point()+
+  geom_errorbar(aes(ymax=CIupper,ymin=CIlower))+
+  coord_flip()
+
+# CI centrality - overlap FULL
+b12 <- summary(boot1_sczFullScz)
+b13 <- filter(b12,type=="strength")
+b14 <- b13[,c(2,6,8,9)]
+
+ggplot(b14,aes(x=id,y=mean))+
+  geom_point()+
+  geom_errorbar(aes(ymax=CIupper,ymin=CIlower))+
+  coord_flip()
+
+
+```
+
